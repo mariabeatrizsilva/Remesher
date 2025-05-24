@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Prompt Analyzer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #results { margin-top: 20px; white-space: pre-wrap; }
+        .category { margin-top: 15px; }
+        .prompt { margin: 10px 0; padding: 10px; background-color: #f0f0f0; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>NSFW Prompt Analyzer</h1>
+    <input type="file" id="fileInput" accept=".csv" />
+    <button id="analyzeBtn">Analyze</button>
+    <div id="results"></div>
+
+    <script>
+        document.getElementById('analyzeBtn').addEventListener('click', function() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Please select a CSV file first.');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const fileContent = e.target.result;
+                analyzePrompts(fileContent);
+            };
+            reader.readAsText(file);
+        });
+        
+        function analyzePrompts(fileContent) {
+            // Define keywords that might indicate NSFW content
+            const nsfwKeywords = [
+                // Sexual content
+                'nude', 'naked', 'sex', 'porn', 'explicit', 'XXX', 'adult', 'erotic', 'nsfw',
+                'topless', 'bottomless', 'seductive', 'sexual', 'sexy', 'sensual', 'intimate',
+                'revealing', 'obscene', 'lewd', 'lustful', 'lust', 'arousing', 'arousal',
+                'orgasm', 'climax', 'intercourse', 'fornication', 'coitus', 'copulation',
+                
+                // Body parts (explicit)
+                'breast', 'boob', 'tit', 'nipple', 'ass', 'butt', 'penis', 'cock', 'dick',
+                'vagina', 'pussy', 'cunt', 'genitalia', 'genital', 'crotch', 'groin',
+                
+                // Violence related
+                'gore', 'bloody', 'blood', 'murder', 'kill', 'death', 'torture', 'mutilate',
+                'decapitate', 'dismember', 'slaughter', 'massacre', 'brutal', 'graphic violence',
+                'extreme violence', 'beheading', 'execution', 'suicide', 'self-harm',
+                
+                // Other problematic
+                'racist', 'nazi', 'terrorism', 'terrorist', 'rape', 'molest', 'abuse', 'pedophile',
+                'child abuse', 'illegal', 'drugs', 'cocaine', 'heroin', 'meth'
+            ];
+            
+            // Parse the CSV
+            const parsedData = Papa.parse(fileContent, {
+                header: true,
+                skipEmptyLines: true
+            });
+            
+            // Function to check if a prompt contains NSFW content
+            function isNSFW(prompt) {
+                const lowerPrompt = prompt.toLowerCase();
+                
+                // Check for exact keywords and word boundaries
+                const foundKeywords = nsfwKeywords.filter(keyword => {
+                    // Use word boundary check to avoid false positives
+                    const regex = new RegExp(`\\b${keyword}\\b`, 'i');
+                    return regex.test(lowerPrompt);
+                });
+                
+                // Return true if any keywords are found
+                return foundKeywords.length > 0 ? foundKeywords : false;
+            }
+            
+            // Analyze all prompts
+            const problematicPrompts = [];
+            
+            parsedData.data.forEach((row, index) => {
+                if (!row.prompt) return; // Skip if prompt is empty
+                
+                const foundKeywords = isNSFW(row.prompt);
+                if (foundKeywords) {
+                    problematicPrompts.push({
+                        uuid: row.uuid,
+                        prompt: row.prompt,
+                        keywords: foundKeywords
+                    });
+                }
+            });
+            
+            // Group problematic prompts by category
+            const categories = {
+                "Violence & Gore": [],
+                "Sexual Content": [],
+                "Explicit Body Parts": [],
+                "Other Problematic": []
+            };
+            
+            // Keywords for each category
+            const violenceKeywords = ['gore', 'bloody', 'blood', 'murder', 'kill', 'death', 'torture', 'mutilate',
+                                'decapitate', 'dismember', 'slaughter', 'massacre', 'brutal', 'graphic violence',
+                                'extreme violence', 'beheading', 'execution', 'suicide', 'self-harm'];
+            
+            const sexualKeywords = ['nude', 'naked', 'sex', 'porn', 'explicit', 'XXX', 'adult', 'erotic', 'nsfw',
+                                'topless', 'bottomless', 'seductive', 'sexual', 'sexy', 'sensual', 'intimate',
+                                'revealing', 'obscene', 'lewd', 'lustful', 'lust', 'arousing', 'arousal',
+                                'orgasm', 'climax', 'intercourse', 'fornication', 'coitus', 'copulation'];
+            
+            const bodyPartKeywords = ['breast', 'boob', 'tit', 'nipple', 'ass', 'butt', 'penis', 'cock', 'dick',
+                                'vagina', 'pussy', 'cunt', 'genitalia', 'genital', 'crotch', 'groin'];
+            
+            const otherKeywords = ['racist', 'nazi', 'terrorism', 'terrorist', 'rape', 'molest', 'abuse', 'pedophile',
+                                'child abuse', 'illegal', 'drugs', 'cocaine', 'heroin', 'meth'];
+            
+            // Categorize each prompt
+            problematicPrompts.forEach(item => {
+                let categorized = false;
+                
+                // Check which category this prompt belongs to (prioritize in order)
+                if (item.keywords.some(kw => bodyPartKeywords.includes(kw))) {
+                    categories["Explicit Body Parts"].push(item);
+                    categorized = true;
+                }
+                
+                if (!categorized && item.keywords.some(kw => sexualKeywords.includes(kw))) {
+                    categories["Sexual Content"].push(item);
+                    categorized = true;
+                }
+                
+                if (!categorized && item.keywords.some(kw => violenceKeywords.includes(kw))) {
+                    categories["Violence & Gore"].push(item);
+                    categorized = true;
+                }
+                
+                if (!categorized && item.keywords.some(kw => otherKeywords.includes(kw))) {
+                    categories["Other Problematic"].push(item);
+                    categorized = true;
+                }
+                
+                // If it somehow didn't get categorized, put it in Other
+                if (!categorized) {
+                    categories["Other Problematic"].push(item);
+                }
+            });
+            
+            // Display results
+            const resultsDiv = document.getElementById('results');
+            
+            let output = `<h2>Analysis Results</h2>`;
+            output += `<p>Total prompts analyzed: ${parsedData.data.length}</p>`;
+            output += `<p>Potentially problematic prompts found: ${problematicPrompts.length} (${(problematicPrompts.length / parsedData.data.length * 100).toFixed(2)}%)</p>`;
+            
+            // Output by category
+            Object.entries(categories).forEach(([category, items]) => {
+                output += `<div class="category"><h3>${category} (${items.length} prompts)</h3>`;
+                
+                items.slice(0, 10).forEach((item, index) => {
+                    output += `<div class="prompt">
+                        <strong>${index + 1}. UUID:</strong> ${item.uuid}<br>
+                        <strong>Prompt:</strong> "${item.prompt.trim()}"<br>
+                        <strong>Flagged for:</strong> ${item.keywords.join(', ')}
+                    </div>`;
+                });
+                
+                if (items.length > 10) {
+                    output += `<p>[...and ${items.length - 10} more ${category.toLowerCase()} prompts]</p>`;
+                }
+                
+                output += `</div>`;
+                
+                // Add download link for this category
+                const csv = Papa.unparse(items.map(item => ({
+                    uuid: item.uuid,
+                    prompt: item.prompt,
+                    keywords: item.keywords.join(', ')
+                })));
+                
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                output += `<p><a href="${url}" download="${category.toLowerCase().replace(/\s+/g, '_')}_prompts.csv">Download ${category} CSV</a></p>`;
+            });
+            
+            // Check for false positives
+            const falsePositives = problematicPrompts.filter(item => {
+                return item.prompt.toLowerCase().includes('-neg') && 
+                       item.keywords.some(kw => item.prompt.toLowerCase().includes(kw) && 
+                                       item.prompt.toLowerCase().indexOf(kw) > item.prompt.toLowerCase().indexOf('-neg'));
+            });
+            
+            output += `<div class="category"><h3>Potential False Positives (${falsePositives.length} prompts)</h3>`;
+            output += `<p>These prompts contain NSFW keywords in negative prompting sections (attempting to AVOID such content):</p>`;
+            
+            falsePositives.slice(0, 10).forEach((item, index) => {
+                const shortPrompt = item.prompt.length > 150 ? item.prompt.substring(0, 150) + "..." : item.prompt;
+                output += `<div class="prompt">
+                    <strong>${index + 1}. UUID:</strong> ${item.uuid}<br>
+                    <strong>Prompt:</strong> "${shortPrompt.trim()}"<br>
+                    <strong>Flagged for:</strong> ${item.keywords.join(', ')}
+                </div>`;
+            });
+            
+            if (falsePositives.length > 10) {
+                output += `<p>[...and ${falsePositives.length - 10} more potential false positives]</p>`;
+            }
+            
+            output += `</div>`;
+            
+            // Add download link for all problematic prompts
+            const allPromptsJson = JSON.stringify(problematicPrompts, null, 2);
+            const jsonBlob = new Blob([allPromptsJson], { type: 'application/json' });
+            const jsonUrl = URL.createObjectURL(jsonBlob);
+            output += `<p><a href="${jsonUrl}" download="problematic_prompts.json">Download All Problematic Prompts (JSON)</a></p>`;
+            
+            resultsDiv.innerHTML = output;
+        }
+    </script>
+</body>
+</html>
